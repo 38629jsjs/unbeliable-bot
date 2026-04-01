@@ -3,10 +3,23 @@ import requests, time, random, json, re, threading, os
 # ==========================================
 # CONFIGURATION
 # ==========================================
-MAIN_ID = os.getenv("MAIN_ID") 
+# In Koyeb, set OWNERS to: 123456789,987654321
+OWNERS_RAW = os.getenv("OWNERS", "")
+OWNER_IDS = [int(i.strip()) for i in OWNERS_RAW.split(",") if i.strip()]
+
 MAIN_TOKEN = os.getenv("MAIN_TOKEN") 
 ALT_TOKEN = os.getenv("ALT_TOKEN") 
 # ==========================================
+
+# Inside on_message(ws, message):
+    data = json.loads(message)
+    if data.get("t") == "MESSAGE_CREATE":
+        m = data["d"]
+        author_id = int(m.get("author", {}).get("id")) # Get the ID as an integer
+        
+        # 1. SECURITY: Only YOU or your FRIEND can trigger it
+        if author_id not in OWNER_IDS: 
+            return
 
 def delete_msg(token, channel_id, msg_id, delay):
     time.sleep(delay)
