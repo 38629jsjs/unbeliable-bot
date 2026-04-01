@@ -32,32 +32,60 @@ def typing_signal(channel_id):
         time.sleep(1.0)
 
 def search_roulette(guild_id, channel_id):
-    url = f"https://discord.com/api/v9/guilds/{guild_id}/messages/search?channel_id={channel_id}&content=roulette"
+    # Searches for UnbelievaBoat's actual result messages
+    url = f"https://discord.com/api/v9/guilds/{guild_id}/messages/search?channel_id={channel_id}&content=landed on"
     headers = {"Authorization": MAIN_TOKEN}
     try:
         res = requests.get(url, headers=headers)
         if res.status_code == 200:
             data = res.json()
+            # Extract actual winning colors from bot results
             msgs = [m[0]['content'].lower() for m in data.get('messages', [])[:25]]
-            found = [c for c in ["black", "red"] if any(c in m for m in msgs)]
+            found = []
+            for m in msgs:
+                if "black" in m: found.append("black")
+                elif "red" in m: found.append("red")
+                elif "green" in m: found.append("green")
+            
             if not found: return None
+            
             b, r = found.count("black"), found.count("red")
+            # If red is hitting more, bet black (and vice versa)
             pick = "black" if r > b else "red"
-            return f"{pick} {'high' if abs(r-b) > 2 else 'low'}"
+            conf = "high" if abs(r-b) > 3 else "low"
+            return f"{pick} {conf}"
         return None
     except: return None
 
 def bj_logic(my_t, d_u, is_p, count):
+    """Pro Basic Strategy Matrix"""
     decision = "hit"
-    if my_t >= 17: decision = "stand"
-    elif 13 <= my_t <= 16 and d_u <= 6: decision = "stand"
-    elif my_t == 11: decision = "double"
-    elif is_p and my_t in [16, 12, 4]: decision = "split"
-    prob = 48
-    if my_t >= 20: prob = 90
-    elif 4 <= d_u <= 6: prob += 10
-    prob -= (count - 2) * 5
-    return f"{decision} {max(5, min(99, prob))}%"
+    
+    # 1. SPLIT RULES (Only on first 2 cards)
+    if is_p and count == 2:
+        if my_t in [16, 22]: decision = "split" # 8s and Aces
+        elif my_t == 18 and d_u not in [7, 10, 11]: decision = "split" # 9s
+        elif my_t in [4, 6, 14] and d_u <= 7: decision = "split" # 2s, 3s, 7s
+    
+    # 2. DOUBLE DOWN RULES (Only on first 2 cards)
+    elif count == 2:
+        if my_t == 11: decision = "double"
+        elif my_t == 10 and d_u <= 9: decision = "double"
+        elif my_t == 9 and 3 <= d_u <= 6: decision = "double"
+
+    # 3. STAND RULES
+    if decision == "hit":
+        if my_t >= 17: decision = "stand"
+        elif 13 <= my_t <= 16 and d_u <= 6: decision = "stand"
+        elif my_t == 12 and 4 <= d_u <= 6: decision = "stand"
+
+    # 4. WIN CHANCE
+    win_p = 48
+    if my_t >= 20: win_p = 92
+    elif 4 <= d_u <= 6: win_p += 12
+    win_p -= (count - 2) * 5 # Penalty for high card count
+    
+    return f"{decision} {max(5, min(99, win_p))}%"
 
 def on_message(ws, message):
     try:
@@ -67,21 +95,20 @@ def on_message(ws, message):
             content = m.get("content", "").lower().strip()
             author_id = int(m.get("author", {}).get("id"))
             
-            # Security check
-            if author_id not in OWNER_IDS:
-                return
+            if author_id not in OWNER_IDS: return
 
             channel_id = m.get("channel_id")
             msg_id = m.get("id")
             guild_id = m.get("guild_id")
 
             if content.startswith(".h ") or content == ".ra":
-                # Delete command in 1s
+                # Delete your command message in 1s
                 threading.Thread(target=delete_msg, args=(MAIN_TOKEN, channel_id, msg_id, 1)).start()
 
                 if content.startswith(".h "):
                     try:
                         p = content.split(".h ")[1].split(" ")
+                        # Format: .h [Total] [Dealer] [Pair y/n] [Count]
                         res = bj_logic(int(p[0]), int(p[1]), p[2]=='y', int(p[3]))
                         threading.Thread(target=ghost_post, args=(res, channel_id)).start()
                     except: pass
@@ -91,8 +118,7 @@ def on_message(ws, message):
                         threading.Thread(target=ghost_post, args=(advice, channel_id)).start()
                     else:
                         threading.Thread(target=typing_signal, args=(channel_id,)).start()
-    except:
-        pass
+    except: pass
 
 def run_bot():
     import websocket
